@@ -1,13 +1,14 @@
 # Production deployment
 
-The PrintShare server must be reachable over **HTTPS** by phones and by the Windows bridge. Two common layouts:
+The PrintShare server must be reachable over **HTTPS** by phones and by the Windows bridge. Common layouts:
 
 | Layout | When |
 |---|---|
-| **A. Cloud server** (VPS) running the web app; the bridge on the office/home PC connects out to it | Several sites or users, always-on |
+| **Vercel** (serverless) — see [`VERCEL.md`](VERCEL.md) | Easiest hosting: managed HTTPS, Blob storage, no server to run. Uses polling instead of WebSockets |
+| **A. Cloud server** (VPS) running the web app; the bridge on the office/home PC connects out to it | Several sites or users, always-on, instant WebSocket updates |
 | **B. Same Windows PC** runs the web app *and* the bridge, published through an HTTPS tunnel | One printer at home/small office, no server to rent |
 
-The bridge only makes **outbound** connections in both cases.
+The bridge only makes **outbound** connections in every case.
 
 ## A. Cloud server with Docker Compose
 

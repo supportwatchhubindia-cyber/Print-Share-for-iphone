@@ -45,3 +45,6 @@ web/public/downloads/
 
 # Local tool config
 .claude/
+
+# Local PostgreSQL data directories
+.pgdev/

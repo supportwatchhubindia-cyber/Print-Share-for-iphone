@@ -44,6 +44,18 @@ cd ..\bridge-windows
 
 Full instructions: [`docs/SETUP.md`](docs/SETUP.md) · production: [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
 
+## Deploy on Vercel
+
+The web app is Vercel-ready: on Vercel it automatically switches to private **Vercel Blob** storage, direct
+browser-to-Blob uploads, polling instead of WebSockets (bridges long-poll for jobs), and a secured maintenance cron.
+
+1. Import this repo in Vercel and set **Root Directory = `web`**.
+2. Connect a **Blob store** and a **PostgreSQL** database (pooled `DATABASE_URL` + direct `DIRECT_URL`).
+3. Add `SIGNING_SECRET` and `CRON_SECRET`, then deploy — production builds apply migrations automatically.
+4. Pair **PrintShare Bridge 1.1+** with your `https://…vercel.app` (or custom) domain.
+
+Step-by-step, environment variables, limits and the first-deploy checklist: [`docs/VERCEL.md`](docs/VERCEL.md).
+
 ## What has been verified, and what still needs the real printer
 
 | Area | Status |
