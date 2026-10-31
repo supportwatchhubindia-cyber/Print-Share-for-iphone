@@ -1,0 +1,69 @@
+# Production stack: PostgreSQL + ClamAV + PrintShare web + Caddy (automatic HTTPS, WebSocket-aware).
+# Usage:  cp .env.example .env  (edit)  &&  docker compose up -d --build
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: printshare
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: printshare
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U printshare -d printshare"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  clamav:
+    image: clamav/clamav:1.4
+    restart: unless-stopped
+    volumes:
+      - clamav_db:/var/lib/clamav
+
+  web:
+    build: ../web
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      clamav:
+        condition: service_started
+    environment:
+      DATABASE_URL: postgresql://printshare:${POSTGRES_PASSWORD}@db:5432/printshare?schema=public
+      APP_URL: https://${DOMAIN:?set DOMAIN in deploy/.env}
+      SIGNING_SECRET: ${SIGNING_SECRET:?set SIGNING_SECRET in deploy/.env}
+      TRUST_PROXY: "true"
+      CLAMAV_HOST: clamav
+      CLAMAV_PORT: "3310"
+      MALWARE_SCAN_REQUIRED: ${MALWARE_SCAN_REQUIRED:-true}
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-25}
+      DOCUMENT_TTL_HOURS: ${DOCUMENT_TTL_HOURS:-24}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    volumes:
+      - storage:/data/storage
+    expose:
+      - "3000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [web]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+
+volumes:
+  db_data:
+  clamav_db:
+  storage:
+  caddy_data:
+  caddy_config:

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PrintShare USB</string>
+    <string name="title">USB printer check</string>
+    <string name="subtitle">Connect your printer with a USB OTG cable. This app reads what the printer understands and tells you whether your phone can print to it directly.</string>
+    <string name="scan">Scan USB devices</string>
+    <string name="print_direct">Print a PDF directly (experimental)</string>
+    <string name="share_report">Share report</string>
+    <string name="open_printshare">Open PrintShare</string>
+    <string name="server_hint">PrintShare address, e.g. https://print.example.com</string>
+    <string name="no_device">No USB printer found. Check the OTG adapter and that the printer is switched on.</string>
+</resources>

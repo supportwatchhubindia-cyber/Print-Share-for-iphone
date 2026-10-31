@@ -1,0 +1,12 @@
+node_modules
+.next
+dist
+storage
+storage-test
+public/pdfjs
+public/downloads
+.env
+.env.*
+!.env.example
+coverage
+*.log

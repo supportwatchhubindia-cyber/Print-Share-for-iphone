@@ -1,0 +1,47 @@
+# Node / Next.js
+node_modules/
+web/.next/
+web/dist/
+web/out/
+web/next-env.d.ts
+web/*.tsbuildinfo
+web/storage/
+web/public/pdfjs/
+web/coverage/
+
+# Env files (keep the examples)
+.env
+.env.*
+!.env.example
+web/.env
+web/.env.*
+!web/.env.example
+
+# .NET
+bridge-windows/**/bin/
+bridge-windows/**/obj/
+bridge-windows/artifacts/
+bridge-windows/**/TestResults/
+*.user
+.vs/
+
+# Android / Gradle
+android-companion/.gradle/
+android-companion/**/build/
+android-companion/local.properties
+android-companion/.idea/
+*.iml
+*.keystore
+*.jks
+
+# OS / editors
+.DS_Store
+Thumbs.db
+.vscode/
+*.log
+
+# Built bridge packages (produced by bridge-windows/publish.ps1)
+web/public/downloads/
+
+# Local tool config
+.claude/

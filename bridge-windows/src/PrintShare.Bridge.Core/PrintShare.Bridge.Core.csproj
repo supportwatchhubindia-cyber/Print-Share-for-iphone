@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- System.Drawing.Printing (GDI+) is used to drive the installed Windows printer driver. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <RootNamespace>PrintShare.Bridge.Core</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- PDFium renderer (MIT). Bundles native pdfium for win-x64/win-x86. -->
+    <PackageReference Include="Docnet.Core" Version="2.6.0" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="PrintShare.Bridge.Core.Tests" />
+  </ItemGroup>
+
+</Project>

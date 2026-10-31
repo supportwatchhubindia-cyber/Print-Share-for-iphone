@@ -1,0 +1,393 @@
+// PrintShare data model.
+// Ownership rule: every user-facing row carries userId and every query filters by it.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+enum DocumentStatus {
+  PROCESSING
+  READY
+  FAILED
+  EXPIRED
+  DELETED
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  SKIPPED
+  ERROR
+}
+
+enum PrintJobStatus {
+  UPLOADED
+  QUEUED
+  PROCESSING
+  PRINTING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+enum JobEventSource {
+  USER
+  BRIDGE
+  SYSTEM
+}
+
+enum PrinterConnection {
+  USB
+  NETWORK
+  VIRTUAL
+  OTHER
+}
+
+enum PrinterState {
+  READY
+  PRINTING
+  OFFLINE
+  PAUSED
+  PAPER_OUT
+  PAPER_JAM
+  DOOR_OPEN
+  NO_TONER
+  ERROR
+  UNKNOWN
+}
+
+enum DriverStatus {
+  INSTALLED
+  MISSING
+  UNKNOWN
+}
+
+enum BridgeStatus {
+  ONLINE
+  OFFLINE
+  PAUSED
+  REVOKED
+}
+
+enum SubscriptionPlan {
+  FREE
+  PRO
+  BUSINESS
+}
+
+enum SubscriptionStatus {
+  ACTIVE
+  PAST_DUE
+  CANCELED
+}
+
+enum PaperSize {
+  A4
+  A5
+  LETTER
+  LEGAL
+}
+
+enum Orientation {
+  PORTRAIT
+  LANDSCAPE
+}
+
+enum ColorMode {
+  MONOCHROME
+  COLOR
+}
+
+enum DuplexMode {
+  SIMPLEX
+  LONG_EDGE
+  SHORT_EDGE
+}
+
+enum PrintQuality {
+  DRAFT
+  NORMAL
+  HIGH
+}
+
+enum ScaleMode {
+  FIT
+  ACTUAL
+}
+
+enum ActorType {
+  USER
+  ADMIN
+  BRIDGE
+  SYSTEM
+}
+
+model User {
+  id           String     @id @default(cuid())
+  email        String     @unique
+  name         String
+  passwordHash String
+  role         Role       @default(USER)
+  status       UserStatus @default(ACTIVE)
+  lastLoginAt  DateTime?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  sessions     DeviceSession[]
+  documents    Document[]
+  printers     Printer[]
+  bridges      DesktopBridge[]
+  pairingCodes BridgePairingCode[]
+  printJobs    PrintJob[]
+  subscription Subscription?
+  usageRecords UsageRecord[]
+  auditLogs    AuditLog[]
+
+  @@index([createdAt])
+}
+
+model DeviceSession {
+  id          String    @id @default(cuid())
+  userId      String
+  tokenHash   String    @unique
+  deviceLabel String?
+  userAgent   String?
+  ipAddress   String?
+  createdAt   DateTime  @default(now())
+  lastSeenAt  DateTime  @default(now())
+  expiresAt   DateTime
+  revokedAt   DateTime?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model DesktopBridge {
+  id               String       @id @default(cuid())
+  userId           String
+  name             String
+  secretHash       String
+  os               String?
+  appVersion       String?
+  status           BridgeStatus @default(OFFLINE)
+  lastSeenAt       DateTime?
+  lastIp           String?
+  // Printers the bridge currently sees on the Windows host (sanitised JSON array).
+  detectedPrinters Json         @default("[]")
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  revokedAt        DateTime?
+
+  user        User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  printers    Printer[]
+  claimedJobs PrintJob[]          @relation("ClaimedByBridge")
+  pairingCode BridgePairingCode[]
+
+  @@index([userId])
+  @@index([status, lastSeenAt])
+}
+
+model BridgePairingCode {
+  id        String    @id @default(cuid())
+  userId    String
+  codeHash  String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  bridgeId  String?
+  createdAt DateTime  @default(now())
+
+  user   User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bridge DesktopBridge? @relation(fields: [bridgeId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Printer {
+  id              String            @id @default(cuid())
+  userId          String
+  bridgeId        String?
+  name            String
+  modelKey        String
+  modelName       String
+  systemName      String?
+  driverName      String?
+  portName        String?
+  connection      PrinterConnection
+  state           PrinterState      @default(UNKNOWN)
+  stateMessage    String?
+  driverStatus    DriverStatus      @default(UNKNOWN)
+  // Effective capabilities: model profile intersected with what the driver reports.
+  capabilities    Json
+  lastConnectedAt DateTime?
+  removedAt       DateTime?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  user      User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  bridge    DesktopBridge? @relation(fields: [bridgeId], references: [id], onDelete: SetNull)
+  printJobs PrintJob[]
+
+  @@unique([bridgeId, systemName])
+  @@index([userId, removedAt])
+}
+
+model Document {
+  id            String         @id @default(cuid())
+  userId        String
+  originalName  String
+  extension     String
+  mimeType      String
+  sizeBytes     Int
+  storageKey    String
+  pdfStorageKey String?
+  pdfSizeBytes  Int?
+  pdfSha256     String?
+  pageCount     Int?
+  status        DocumentStatus @default(PROCESSING)
+  errorMessage  String?
+  scanStatus    ScanStatus     @default(PENDING)
+  scanDetail    String?
+  expiresAt     DateTime
+  deletedAt     DateTime?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  printJobs PrintJob[]
+
+  @@index([userId, createdAt])
+  @@index([status, expiresAt])
+}
+
+model PrintJob {
+  id                String         @id @default(cuid())
+  jobNumber         Int            @unique @default(autoincrement())
+  userId            String
+  printerId         String
+  documentId        String?
+  claimedByBridgeId String?
+  documentName      String
+  documentPages     Int
+  status            PrintJobStatus @default(UPLOADED)
+  copies            Int            @default(1)
+  pageRange         String?
+  pagesSelected     Int
+  paperSize         PaperSize      @default(A4)
+  orientation       Orientation    @default(PORTRAIT)
+  colorMode         ColorMode      @default(MONOCHROME)
+  duplex            DuplexMode     @default(SIMPLEX)
+  quality           PrintQuality   @default(NORMAL)
+  scaleMode         ScaleMode      @default(FIT)
+  isTest            Boolean        @default(false)
+  attempt           Int            @default(1)
+  spoolJobId        Int?
+  pagesPrinted      Int?
+  printerAlert      String?
+  errorCode         String?
+  errorMessage      String?
+  cancelRequestedAt DateTime?
+  claimedAt         DateTime?
+  printingAt        DateTime?
+  completedAt       DateTime?
+  failedAt          DateTime?
+  cancelledAt       DateTime?
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  user            User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  printer         Printer         @relation(fields: [printerId], references: [id], onDelete: Cascade)
+  document        Document?       @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  claimedByBridge DesktopBridge?  @relation("ClaimedByBridge", fields: [claimedByBridgeId], references: [id], onDelete: SetNull)
+  events          PrintJobEvent[]
+  usageRecord     UsageRecord?
+
+  @@index([userId, createdAt])
+  @@index([printerId, status])
+  @@index([claimedByBridgeId, status])
+  @@index([status, createdAt])
+}
+
+model PrintJobEvent {
+  id         String          @id @default(cuid())
+  printJobId String
+  status     PrintJobStatus?
+  type       String
+  message    String
+  source     JobEventSource
+  metadata   Json?
+  createdAt  DateTime        @default(now())
+
+  printJob PrintJob @relation(fields: [printJobId], references: [id], onDelete: Cascade)
+
+  @@index([printJobId, createdAt])
+}
+
+model Subscription {
+  id                 String             @id @default(cuid())
+  userId             String             @unique
+  plan               SubscriptionPlan   @default(FREE)
+  status             SubscriptionStatus @default(ACTIVE)
+  monthlyPageLimit   Int
+  maxPrinters        Int
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model UsageRecord {
+  id          String   @id @default(cuid())
+  userId      String
+  printJobId  String?  @unique
+  pages       Int
+  sheets      Int
+  periodStart DateTime
+  createdAt   DateTime @default(now())
+
+  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  printJob PrintJob? @relation(fields: [printJobId], references: [id], onDelete: SetNull)
+
+  @@index([userId, periodStart])
+  @@index([createdAt])
+}
+
+model AuditLog {
+  id         String    @id @default(cuid())
+  userId     String?
+  actorType  ActorType
+  actorId    String?
+  action     String
+  targetType String?
+  targetId   String?
+  ipAddress  String?
+  userAgent  String?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@index([action, createdAt])
+  @@index([createdAt])
+}

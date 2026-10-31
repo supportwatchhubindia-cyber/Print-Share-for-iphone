@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Any USB Printer Class device (bInterfaceClass 7). -->
+    <usb-device class="7" />
+    <!-- HP (vendor 0x03F0) composite MFPs that expose the printer on a sub-interface. -->
+    <usb-device vendor-id="1008" />
+</resources>

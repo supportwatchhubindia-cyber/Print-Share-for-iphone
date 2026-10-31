@@ -1,0 +1,9 @@
+{$DOMAIN} {
+	encode zstd gzip
+	# Uploads are limited in the app too; keep the proxy limit slightly above MAX_UPLOAD_MB.
+	request_body {
+		max_size 30MB
+	}
+	# Proxies HTTP and the /ws WebSocket; sets X-Forwarded-For/Proto (TRUST_PROXY=true in the app).
+	reverse_proxy web:3000
+}
