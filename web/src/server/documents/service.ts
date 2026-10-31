@@ -3,7 +3,7 @@ import { prisma } from "../db";
 import { env } from "../env";
 import { ApiError, conflict, notFound, unprocessable } from "../errors";
 import { sha256Hex, signToken } from "../crypto";
-import { deletePrefix, documentFolder, documentKey, writeObject } from "../storage";
+import { deletePrefix, documentFolder, documentKey, presignedObjectUrl, writeObject } from "../storage";
 import { audit } from "../audit";
 import { validateContent } from "./detect";
 import { scanUpload } from "./scan";
@@ -37,22 +37,30 @@ async function toPrintablePdf(ext: FileExtension, buf: Buffer): Promise<Buffer> 
   }
 }
 
+/** An upload from either a multipart request (self-hosted) or a browser-to-Blob upload (Vercel). */
+export type UploadSource = { name: string; size: number; read: () => Promise<Buffer> };
+
+export function maxUploadBytes() {
+  return env().MAX_UPLOAD_MB * 1024 * 1024;
+}
+
 /**
  * Validates, scans, stores and converts an upload to a print-ready PDF.
  * Processing is synchronous so the response already carries the page count.
  */
-export async function ingestUpload(userId: string, file: File, req?: Request): Promise<Document> {
+export async function ingestUpload(userId: string, source: UploadSource, req?: Request): Promise<Document> {
   const { MAX_UPLOAD_MB, DOCUMENT_TTL_HOURS, MALWARE_SCAN_REQUIRED } = env();
-  const name = sanitizeFilename(file.name || "document");
+  const name = sanitizeFilename(source.name || "document");
   const ext = extensionOf(name);
   if (!isAcceptedExtension(ext)) {
     throw unprocessable("UNSUPPORTED_TYPE", `".${ext || "?"}" files are not supported. Use ${ACCEPTED_EXTENSIONS.join(", ").toUpperCase()}.`);
   }
-  if (file.size === 0) throw unprocessable("EMPTY_FILE", "The file is empty.");
-  if (file.size > MAX_UPLOAD_MB * 1024 * 1024) {
+  if (source.size === 0) throw unprocessable("EMPTY_FILE", "The file is empty.");
+  if (source.size > maxUploadBytes()) {
     throw new ApiError(413, "FILE_TOO_LARGE", `Files must be ${MAX_UPLOAD_MB} MB or smaller.`);
   }
-  const buf = Buffer.from(await file.arrayBuffer());
+  const buf = await source.read();
+  if (buf.length === 0) throw unprocessable("EMPTY_FILE", "The file is empty.");
   const check = validateContent(ext, buf);
   if (!check.ok) throw unprocessable("CONTENT_MISMATCH", check.reason);
 
@@ -80,7 +88,7 @@ export async function ingestUpload(userId: string, file: File, req?: Request): P
     return new ApiError(status, code, message, { documentId: doc.id });
   };
 
-  await writeObject(originalKey, buf);
+  await writeObject(originalKey, buf, FILE_TYPES[ext].mime);
   await prisma.document.update({ where: { id: doc.id }, data: { storageKey: originalKey } });
 
   const scan = await scanUpload(buf);
@@ -101,7 +109,7 @@ export async function ingestUpload(userId: string, file: File, req?: Request): P
     let pdfKey = originalKey;
     if (ext !== "pdf") {
       pdfKey = documentKey(userId, doc.id, "print.pdf");
-      await writeObject(pdfKey, pdf);
+      await writeObject(pdfKey, pdf, "application/pdf");
     }
     const ready = await prisma.document.update({
       where: { id: doc.id },
@@ -135,6 +143,16 @@ export async function getOwnedDocument(userId: string, id: string): Promise<Docu
 export function signedDocumentUrl(docId: string, variant: "pdf" | "original"): string {
   const token = signToken("doc", { d: docId, v: variant }, DOC_URL_TTL_SECONDS);
   return `/api/documents/${docId}/file?variant=${variant}&token=${encodeURIComponent(token)}`;
+}
+
+/**
+ * Short-lived URL for a document file. With Vercel Blob it is a presigned Blob URL so the
+ * file never passes through a function (4.5 MB response cap); locally it is our signed route.
+ */
+export async function documentFileUrl(doc: Pick<Document, "id" | "storageKey" | "pdfStorageKey">, variant: "pdf" | "original"): Promise<string | null> {
+  const key = variant === "pdf" ? doc.pdfStorageKey : doc.storageKey;
+  if (!key) return null;
+  return (await presignedObjectUrl(key, DOC_URL_TTL_SECONDS)) ?? signedDocumentUrl(doc.id, variant);
 }
 
 export async function deleteDocument(userId: string, id: string, req?: Request) {

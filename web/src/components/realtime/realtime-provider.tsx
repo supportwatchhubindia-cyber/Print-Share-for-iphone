@@ -4,8 +4,9 @@ import * as React from "react";
 import { useSWRConfig } from "swr";
 import { toast } from "sonner";
 import type { ClientRealtimeEvent } from "@/lib/types";
+import { REALTIME_TRANSPORT } from "@/lib/realtime-config";
 
-export type RealtimeStatus = "connecting" | "live" | "offline";
+export type RealtimeStatus = "connecting" | "live" | "offline" | "polling";
 const RealtimeContext = React.createContext<RealtimeStatus>("connecting");
 export const useRealtimeStatus = () => React.useContext(RealtimeContext);
 
@@ -16,13 +17,15 @@ const isInfiniteJobs = (key: unknown) => typeof key === "string" && key.startsWi
  * One WebSocket per tab. Events only say *what* changed; SWR refetches the details,
  * so a missed event is healed by the next revalidation. Reconnects with backoff and
  * refetches everything after a reconnect (e.g. iPhone waking from sleep).
+ * On serverless deployments (REALTIME_TRANSPORT=poll) there is no socket: SWR hooks poll instead.
  */
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const { mutate } = useSWRConfig();
-  const [status, setStatus] = React.useState<RealtimeStatus>("connecting");
+  const [status, setStatus] = React.useState<RealtimeStatus>(REALTIME_TRANSPORT === "poll" ? "polling" : "connecting");
   const announced = React.useRef(new Set<string>());
 
   React.useEffect(() => {
+    if (REALTIME_TRANSPORT === "poll") return;
     let ws: WebSocket | null = null;
     let attempt = 0;
     let timer: ReturnType<typeof setTimeout> | undefined;

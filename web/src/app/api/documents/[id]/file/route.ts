@@ -2,11 +2,12 @@ import { prisma } from "@/server/db";
 import { api, notFound } from "@/server/http";
 import { optionalUser } from "@/server/auth/guard";
 import { verifyToken } from "@/server/crypto";
-import { objectSize, objectWebStream } from "@/server/storage";
+import { openObject, presignedObjectUrl } from "@/server/storage";
 
 /**
  * Streams a document. Access requires either a valid signed token for this exact
  * document + variant, or a session belonging to the owner. Files are never public.
+ * With Vercel Blob storage the response is a redirect to a 5-minute presigned URL instead.
  */
 export const GET = api<{ id: string }>(async (req, { params }) => {
   const url = new URL(req.url);
@@ -24,16 +25,19 @@ export const GET = api<{ id: string }>(async (req, { params }) => {
 
   const key = variant === "pdf" ? doc.pdfStorageKey : doc.storageKey;
   if (!key) throw notFound("Document");
-  const size = await objectSize(key);
-  if (size == null) throw notFound("Document");
 
+  const presigned = await presignedObjectUrl(key, 300);
+  if (presigned) return Response.redirect(presigned, 302);
+
+  const object = await openObject(key);
+  if (!object) throw notFound("Document");
   const isPdf = variant === "pdf";
   const filename = isPdf ? doc.originalName.replace(/\.[^.]+$/, "") + ".pdf" : doc.originalName;
   const inline = isPdf || doc.extension === "jpg" || doc.extension === "jpeg" || doc.extension === "png";
-  return new Response(objectWebStream(key), {
+  return new Response(object.stream, {
     headers: {
       "Content-Type": isPdf ? "application/pdf" : doc.mimeType,
-      "Content-Length": String(size),
+      "Content-Length": String(object.size),
       "Content-Disposition": `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(filename)}`,
       "Cache-Control": "private, no-store",
       "X-Content-Type-Options": "nosniff",

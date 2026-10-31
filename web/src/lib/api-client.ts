@@ -1,4 +1,5 @@
 import type { ApiErrorBody, DocumentDTO } from "./types";
+import { FILE_TYPES } from "./constants";
 
 export class ApiClientError extends Error {
   constructor(
@@ -79,6 +80,42 @@ export function uploadDocument(
     form.append("file", file, file.name);
     xhr.send(form);
   });
+}
+
+function randomHex(bytes: number): string {
+  // getRandomValues works on plain-http LAN addresses too (randomUUID needs a secure context).
+  return Array.from(crypto.getRandomValues(new Uint8Array(bytes)), (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * Vercel path: the browser uploads straight to private Vercel Blob (function bodies are capped
+ * at 4.5 MB), then asks the server to ingest it (validate, scan, convert).
+ */
+export async function uploadDocumentViaBlob(
+  file: File,
+  userId: string,
+  onProgress: (fraction: number) => void,
+  signal?: AbortSignal,
+): Promise<{ document: DocumentDTO }> {
+  const ext = file.name.includes(".") ? file.name.slice(file.name.lastIndexOf(".") + 1).toLowerCase() : "";
+  const type = (FILE_TYPES as Record<string, { mime: string }>)[ext]?.mime;
+  const { upload } = await import("@vercel/blob/client");
+  let blob: { pathname: string };
+  try {
+    blob = await upload(`incoming/${userId}/${randomHex(16)}.${ext}`, file, {
+      access: "private",
+      handleUploadUrl: "/api/documents/blob-token",
+      contentType: type,
+      multipart: file.size > 8 * 1024 * 1024,
+      abortSignal: signal,
+      onUploadProgress: ({ percentage }) => onProgress(percentage / 100),
+    });
+  } catch (err) {
+    if (signal?.aborted) throw new ApiClientError(0, "ABORTED", "Upload cancelled.");
+    throw new ApiClientError(0, "UPLOAD_FAILED", err instanceof Error ? err.message : "Upload failed.");
+  }
+  onProgress(1);
+  return apiFetch<{ document: DocumentDTO }>("/api/documents/ingest", { method: "POST", json: { pathname: blob.pathname, name: file.name }, signal });
 }
 
 export function errorMessage(err: unknown): string {

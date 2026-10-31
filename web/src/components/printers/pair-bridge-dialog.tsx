@@ -34,7 +34,7 @@ export function PairBridgeDialog({
   const [code, setCode] = React.useState<{ code: string; expiresAt: string } | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [copied, setCopied] = React.useState(false);
-  const bridges = useBridges();
+  const bridges = useBridges(open);
   const knownIds = React.useRef<Set<string> | null>(null);
   const countdown = useCountdown(code?.expiresAt ?? null);
   const serverUrl = typeof window !== "undefined" ? window.location.origin : "";

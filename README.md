@@ -23,7 +23,7 @@ driver and reports a job **Completed only after the Windows spooler confirms it*
 | [`web/`](web) | Next.js 15 (App Router, TypeScript strict, Tailwind 4, shadcn-style UI) web app **and** API, custom Node server with WebSocket, Prisma/PostgreSQL |
 | [`bridge-windows/`](bridge-windows) | PrintShare Bridge — C#/.NET 8 tray app (+ headless mode) for Windows 10/11 |
 | [`android-companion/`](android-companion) | Kotlin USB-OTG compatibility checker (explains that the M1005 needs the bridge; experimental PCL direct print for PCL printers) |
-| [`docs/`](docs) | Architecture, setup, deployment, API, security, Android investigation, **hardware verification checklist** |
+| [`docs/`](docs) | Architecture, setup, deployment, **[Vercel](docs/VERCEL.md)**, API, security, Android investigation, **hardware verification checklist** |
 | [`deploy/`](deploy) | Docker Compose (PostgreSQL, ClamAV, Caddy HTTPS) for a production server |
 
 ## Quick start (Windows, development)

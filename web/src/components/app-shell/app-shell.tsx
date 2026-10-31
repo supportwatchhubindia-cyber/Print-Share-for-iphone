@@ -37,10 +37,12 @@ function isActive(pathname: string, href: string) {
 
 function LiveIndicator() {
   const status = useRealtimeStatus();
-  const label = status === "live" ? "Live updates on" : status === "connecting" ? "Connecting…" : "Reconnecting…";
+  const healthy = status === "live" || status === "polling";
+  const label =
+    status === "live" ? "Live updates on" : status === "polling" ? "Auto-refresh on" : status === "connecting" ? "Connecting…" : "Reconnecting…";
   return (
     <span className="inline-flex items-center gap-2 text-xs text-muted" role="status">
-      <span className={cn("size-2 rounded-full", status === "live" ? "bg-success" : "animate-pulse-soft bg-warning")} aria-hidden />
+      <span className={cn("size-2 rounded-full", healthy ? "bg-success" : "animate-pulse-soft bg-warning")} aria-hidden />
       {label}
     </span>
   );

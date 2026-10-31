@@ -30,7 +30,10 @@ public sealed record HeartbeatResponse(
     int HeartbeatIntervalSeconds,
     int PollIntervalSeconds,
     List<string> CancelJobIds,
-    List<RegisteredPrinter> Printers);
+    List<RegisteredPrinter> Printers,
+    // Added in server 1.1: false on serverless hosts (no WebSocket) -> long-poll for jobs instead.
+    bool? Realtime = null,
+    int? LongPollSeconds = null);
 
 public sealed record JobDocument(string Sha256, long SizeBytes, int PageCount, string DownloadUrl);
 

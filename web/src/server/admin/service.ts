@@ -1,10 +1,10 @@
 import { z } from "zod";
 import { prisma } from "../db";
-import { env } from "../env";
+import { env, realtimeTransport } from "../env";
 import { conflict, notFound } from "../errors";
 import { audit } from "../audit";
-import { storageUsageBytes, storageWritable } from "../storage";
-import { findLibreOffice } from "../documents/convert";
+import { storageHealth } from "../storage";
+import { officeConverter } from "../documents/convert";
 import { clamdPing } from "../documents/scan";
 import { BRIDGE_STALE_MS, isBridgeOnline, toPrinterDTO } from "../dto";
 import { ensureSubscription } from "../billing/usage";
@@ -151,15 +151,14 @@ export async function getSystemHealth() {
     checks.push({ name: "Database", status: "error", detail: (err as Error).message.slice(0, 200) });
   }
 
-  const writable = await storageWritable();
-  const used = await storageUsageBytes();
-  checks.push({ name: "File storage", status: writable ? "ok" : "error", detail: writable ? `${(used / 1048576).toFixed(1)} MB in ${env().STORAGE_DIR}` : "Storage directory is not writable" });
+  const storage = await storageHealth();
+  checks.push({ name: "File storage", status: storage.ok ? "ok" : "error", detail: storage.detail });
 
-  const soffice = findLibreOffice();
+  const office = officeConverter();
   checks.push({
     name: "Office conversion",
-    status: soffice ? "ok" : "warn",
-    detail: soffice ? `LibreOffice at ${soffice}` : "LibreOffice not found — DOCX/XLSX/PPTX uploads will be rejected",
+    status: office ? "ok" : "warn",
+    detail: office ?? "No converter — set GOTENBERG_URL or install LibreOffice; DOCX/XLSX/PPTX uploads are rejected",
   });
 
   const { CLAMAV_HOST, CLAMAV_PORT, MALWARE_SCAN_REQUIRED } = env();
@@ -174,11 +173,15 @@ export async function getSystemHealth() {
   checks.push({ name: "Print pipeline", status: stuck ? "warn" : "ok", detail: stuck ? `${stuck} job(s) with no progress for 30+ minutes` : "No stalled jobs" });
 
   const realtime = (globalThis as Record<string, unknown>).__printshareRealtime as { browsers: number; bridges: number; listening: boolean } | undefined;
-  checks.push({
-    name: "Realtime",
-    status: realtime?.listening ? "ok" : "warn",
-    detail: realtime ? `${realtime.browsers} browser and ${realtime.bridges} bridge connection(s)` : "WebSocket server not attached (start with server.ts)",
-  });
+  checks.push(
+    realtimeTransport() === "poll"
+      ? { name: "Realtime", status: "ok", detail: "Polling mode (serverless): browsers auto-refresh, bridges long-poll for jobs" }
+      : {
+          name: "Realtime",
+          status: realtime?.listening ? "ok" : "warn",
+          detail: realtime ? `${realtime.browsers} browser and ${realtime.bridges} bridge connection(s)` : "WebSocket server not attached (start with server.ts)",
+        },
+  );
 
   const mem = process.memoryUsage();
   return {

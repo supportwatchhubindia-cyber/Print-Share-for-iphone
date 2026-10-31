@@ -138,7 +138,7 @@ export async function sendTestPage(userId: string, id: string, req?: Request) {
     },
   });
   const key = documentKey(userId, doc.id, "original.pdf");
-  await writeObject(key, pdf);
+  await writeObject(key, pdf, "application/pdf");
   await prisma.document.update({
     where: { id: doc.id },
     data: { status: "READY", storageKey: key, pdfStorageKey: key, pdfSizeBytes: pdf.length, pdfSha256: sha256Hex(pdf), pageCount: 1 },

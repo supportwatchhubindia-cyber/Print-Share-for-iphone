@@ -24,7 +24,8 @@ export type PdfDocumentProxy = Awaited<ReturnType<PdfJs["getDocument"]>["promise
 
 export async function openPdf(url: string): Promise<PdfDocumentProxy> {
   const pdfjs = await loadPdfJs();
-  return pdfjs.getDocument({ url, isEvalSupported: false, withCredentials: true }).promise;
+  // URLs are self-authorising (signed route or presigned Blob URL); no cookies, so cross-origin CORS stays simple.
+  return pdfjs.getDocument({ url, isEvalSupported: false, withCredentials: false }).promise;
 }
 
 /** iOS Safari kills pages whose canvases exceed its memory budget; stay under ~16.7 MP per canvas. */

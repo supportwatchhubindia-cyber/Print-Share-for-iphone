@@ -7,6 +7,7 @@ import { normalizePairingCode, pairingCode, randomToken, safeEqual, sha256Hex } 
 import { audit } from "../audit";
 import { notifyBridge, notifyUser } from "../events";
 import { BRIDGE_STALE_MS, isBridgeOnline, type StoredDetectedPrinter } from "../dto";
+import { realtimeTransport } from "../env";
 import { mergeCapabilities } from "@/lib/printing/capabilities";
 import { connectionFromPort, identifyModel } from "@/lib/printing/models";
 import { PRINTER_STATES, PRINTER_STATE_LABEL } from "@/lib/constants";
@@ -14,6 +15,20 @@ import { PRINTER_STATES, PRINTER_STATE_LABEL } from "@/lib/constants";
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 export const HEARTBEAT_INTERVAL_SECONDS = 20;
 export const POLL_INTERVAL_SECONDS = 15;
+
+/**
+ * How the bridge should receive work. With WebSockets it polls slowly as a fallback; on
+ * serverless hosts it long-polls (server holds GET /api/bridge/jobs for up to 20 s).
+ */
+export function bridgeTiming() {
+  const realtime = realtimeTransport() === "websocket";
+  return {
+    realtime,
+    heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
+    pollIntervalSeconds: realtime ? POLL_INTERVAL_SECONDS : 2,
+    longPollSeconds: realtime ? 0 : 20,
+  };
+}
 
 export async function createPairingCode(userId: string, req?: Request) {
   const active = await prisma.bridgePairingCode.count({ where: { userId, usedAt: null, expiresAt: { gt: new Date() } } });
@@ -77,8 +92,7 @@ export async function registerBridge(input: z.infer<typeof registerBridgeSchema>
     bridgeId: result.bridge.id,
     bridgeToken: `${result.bridge.id}.${secret}`,
     account: { name: result.owner.name, email: result.owner.email },
-    heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
-    pollIntervalSeconds: POLL_INTERVAL_SECONDS,
+    ...bridgeTiming(),
   };
 }
 
@@ -204,8 +218,7 @@ export async function processHeartbeat(bridge: DesktopBridge, input: HeartbeatIn
 
   return {
     serverTime: now.toISOString(),
-    heartbeatIntervalSeconds: HEARTBEAT_INTERVAL_SECONDS,
-    pollIntervalSeconds: POLL_INTERVAL_SECONDS,
+    ...bridgeTiming(),
     cancelJobIds: cancelJobs.map((j) => j.id),
     printers: registered.map((p) => ({ id: p.id, systemName: p.systemName, name: p.name })),
   };

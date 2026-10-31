@@ -254,6 +254,30 @@ const claimInclude = {
 } as const;
 
 /**
+ * Long-poll support for serverless deployments (no WebSocket push): waits up to `waitSeconds`
+ * until a QUEUED job exists for one of the bridge's ready printers, or one of its in-flight jobs
+ * has a cancel request. Returns early if the client disconnects.
+ */
+export async function waitForBridgeWork(bridge: DesktopBridge, readyPrinterIds: string[], waitSeconds: number, signal?: AbortSignal) {
+  const deadline = Date.now() + Math.min(Math.max(waitSeconds, 0), 25) * 1000;
+  const printerIds = readyPrinterIds.length
+    ? (await prisma.printer.findMany({ where: { id: { in: readyPrinterIds }, bridgeId: bridge.id, removedAt: null }, select: { id: true } })).map((p) => p.id)
+    : [];
+  while (Date.now() < deadline && !signal?.aborted) {
+    const pending = await prisma.printJob.count({
+      where: {
+        OR: [
+          ...(printerIds.length && bridge.status !== "PAUSED" ? [{ status: "QUEUED" as const, printerId: { in: printerIds } }] : []),
+          { claimedByBridgeId: bridge.id, status: { in: ["PROCESSING", "PRINTING"] }, cancelRequestedAt: { not: null } },
+        ],
+      },
+    });
+    if (pending > 0) return;
+    await new Promise((r) => setTimeout(r, 1500));
+  }
+}
+
+/**
  * Returns this bridge's in-flight jobs (for crash recovery) plus newly claimed QUEUED
  * jobs for printers the bridge says are ready. Claims are atomic (status-guarded update),
  * so a job is handed to exactly one poll.

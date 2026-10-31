@@ -2,6 +2,12 @@ import type { NextConfig } from "next";
 
 const isProd = process.env.NODE_ENV === "production";
 
+// Serverless hosts (Vercel) can't hold WebSockets: the UI polls instead. Decided at build time.
+const realtimeTransport = process.env.REALTIME_TRANSPORT ?? (process.env.VERCEL ? "poll" : "websocket");
+// Vercel Blob: browsers upload to vercel.com/api/blob and read presigned URLs on *.blob.vercel-storage.com.
+const usesBlob = !!(process.env.VERCEL || process.env.BLOB_READ_WRITE_TOKEN || process.env.STORAGE_DRIVER === "vercel-blob");
+const blobOrigins = usesBlob ? " https://vercel.com https://*.blob.vercel-storage.com" : "";
+
 // PDF.js is served from /public/pdfjs as an ES module + worker (see scripts/copy-pdfjs.mjs).
 const csp = [
   "default-src 'self'",
@@ -9,9 +15,9 @@ const csp = [
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob:",
   "font-src 'self' data:",
-  "connect-src 'self' ws: wss:",
+  `connect-src 'self' ws: wss:${blobOrigins}`,
   "worker-src 'self' blob:",
-  "frame-src 'self' blob:",
+  `frame-src 'self' blob:${blobOrigins}`,
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
@@ -32,6 +38,7 @@ const nextConfig: NextConfig = {
   poweredByHeader: false,
   eslint: { ignoreDuringBuilds: true },
   serverExternalPackages: ["sharp", "@node-rs/argon2", "pg"],
+  env: { NEXT_PUBLIC_REALTIME_TRANSPORT: realtimeTransport },
   async headers() {
     return [
       { source: "/:path*", headers: securityHeaders },

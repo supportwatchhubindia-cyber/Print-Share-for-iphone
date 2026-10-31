@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "next build && npm run build:server",
+    "vercel-build": "node scripts/vercel-build.mjs",
     "build:server": "esbuild server.ts prisma/seed.ts scripts/cleanup.ts --bundle --platform=node --target=node20 --format=cjs --packages=external --outdir=dist --out-extension:.js=.cjs --entry-names=[name]",
     "start": "cross-env NODE_ENV=production node dist/server.cjs",
     "typecheck": "tsc --noEmit",
@@ -39,6 +40,7 @@
     "@radix-ui/react-slot": "1.2.3",
     "@radix-ui/react-switch": "1.2.6",
     "@radix-ui/react-tabs": "1.1.13",
+    "@vercel/blob": "2.8.2",
     "class-variance-authority": "0.7.1",
     "clsx": "2.1.1",
     "cross-env": "7.0.3",

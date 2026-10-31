@@ -49,6 +49,7 @@ public sealed class BridgeService : IAsyncDisposable
     private Task? _runTask;
     private BridgeState _state = BridgeState.NotPaired;
     private bool _realtime;
+    private bool _announcedPolling;
     private string? _lastError;
     private DateTimeOffset? _lastHeartbeat;
     private Dictionary<string, string> _registered = new(StringComparer.OrdinalIgnoreCase); // systemName -> printerId
@@ -169,13 +170,15 @@ public sealed class BridgeService : IAsyncDisposable
             Publish();
         };
         realtime.MessageReceived += (type, payload) => OnRealtime(type, payload);
-        var realtimeTask = realtime.RunAsync(ct);
+        // Started after the first heartbeat, and only if the server has WebSocket push (not on serverless hosts).
+        Task? realtimeTask = null;
 
         _journal.Prune(TimeSpan.FromDays(14));
         SetState(BridgeState.Connecting);
         var backoff = TimeSpan.FromSeconds(2);
         var heartbeatEvery = TimeSpan.FromSeconds(20);
         var pollEvery = TimeSpan.FromSeconds(15);
+        var longPollSeconds = 0;
         var lastHeartbeat = DateTime.MinValue;
         var pendingFlushed = false;
 
@@ -188,7 +191,14 @@ public sealed class BridgeService : IAsyncDisposable
                     var hb = await HeartbeatAsync(api, ct);
                     lastHeartbeat = DateTime.UtcNow;
                     heartbeatEvery = TimeSpan.FromSeconds(Math.Clamp(hb.HeartbeatIntervalSeconds, 5, 120));
-                    pollEvery = TimeSpan.FromSeconds(Math.Clamp(hb.PollIntervalSeconds, 5, 120));
+                    pollEvery = TimeSpan.FromSeconds(Math.Clamp(hb.PollIntervalSeconds, 1, 120));
+                    longPollSeconds = hb.Realtime == false ? Math.Clamp(hb.LongPollSeconds ?? 20, 0, 25) : 0;
+                    if (hb.Realtime != false && realtimeTask is null) realtimeTask = realtime.RunAsync(ct);
+                    if (hb.Realtime == false && realtimeTask is null && !_announcedPolling)
+                    {
+                        _announcedPolling = true;
+                        _log.Info($"Server has no live channel (serverless host); long-polling for jobs every {longPollSeconds}s");
+                    }
                     foreach (var id in hb.CancelJobIds) CancelJob(id);
                 }
                 if (!pendingFlushed)
@@ -196,11 +206,12 @@ public sealed class BridgeService : IAsyncDisposable
                     await FlushPendingReportsAsync(runner, ct);
                     pendingFlushed = true;
                 }
-                if (!Settings.Paused) await PollAsync(api, runner, ct);
+                if (!Settings.Paused) await PollAsync(api, runner, ct, longPollSeconds);
                 backoff = TimeSpan.FromSeconds(2);
                 _lastError = null;
                 SetState(Settings.Paused ? BridgeState.Paused : BridgeState.Online);
-                await WaitAsync(pollEvery < heartbeatEvery ? pollEvery : heartbeatEvery, ct);
+                // Long-polling already waited on the server; just pace the next request.
+                await WaitAsync(Settings.Paused ? heartbeatEvery : pollEvery < heartbeatEvery ? pollEvery : heartbeatEvery, ct);
             }
             catch (OperationCanceledException) when (ct.IsCancellationRequested)
             {
@@ -224,7 +235,10 @@ public sealed class BridgeService : IAsyncDisposable
         }
 
         foreach (var (_, (_, cancel)) in _active) cancel.Dispose();
-        try { await realtimeTask; } catch (OperationCanceledException) { }
+        if (realtimeTask is not null)
+        {
+            try { await realtimeTask; } catch (OperationCanceledException) { }
+        }
         _realtime = false;
     }
 
@@ -256,12 +270,12 @@ public sealed class BridgeService : IAsyncDisposable
         return caps;
     }
 
-    private async Task PollAsync(BridgeApiClient api, JobRunner runner, CancellationToken ct)
+    private async Task PollAsync(BridgeApiClient api, JobRunner runner, CancellationToken ct, int longPollSeconds)
     {
         var ready = _printerStatus.Where(p => p.Registered && p.State is "READY" or "PRINTING")
             .Select(p => _registered[p.Name])
             .ToList();
-        var jobs = await api.GetJobsAsync(ready, ct);
+        var jobs = await api.GetJobsAsync(ready, ct, longPollSeconds);
         foreach (var job in jobs)
         {
             if (_active.TryGetValue(job.Key, out var running))

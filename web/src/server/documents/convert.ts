@@ -154,13 +154,51 @@ async function withSlot<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-/** DOCX/XLSX/PPTX -> PDF via LibreOffice headless with an isolated profile and a hard timeout. */
+/** Human description of the configured Office converter, or null when Office uploads can't be converted. */
+export function officeConverter(): string | null {
+  const gotenberg = env().GOTENBERG_URL;
+  if (gotenberg) return `Gotenberg at ${new URL(gotenberg).host}`;
+  const soffice = findLibreOffice();
+  return soffice ? `LibreOffice at ${soffice}` : null;
+}
+
+/**
+ * Gotenberg (LibreOffice behind an HTTP API) for hosts that can't run LibreOffice, e.g. Vercel.
+ * POST {GOTENBERG_URL}/forms/libreoffice/convert with the file in the "files" field.
+ */
+export async function gotenbergToPdf(buf: Buffer, ext: "docx" | "xlsx" | "pptx", baseUrl: string, auth?: string): Promise<Buffer> {
+  const form = new FormData();
+  form.append("files", new Blob([new Uint8Array(buf)]), `document.${ext}`);
+  const headers: Record<string, string> = {};
+  if (auth) headers.Authorization = `Basic ${Buffer.from(auth).toString("base64")}`;
+  let res: Response;
+  try {
+    res = await fetch(new URL("/forms/libreoffice/convert", baseUrl), {
+      method: "POST",
+      body: form,
+      headers,
+      signal: AbortSignal.timeout(env().LIBREOFFICE_TIMEOUT_MS),
+    });
+  } catch (err) {
+    const timedOut = (err as Error).name === "TimeoutError";
+    throw new ConversionError("CONVERSION_FAILED", timedOut ? "Converting this document took too long." : "The document converter is unreachable. Try again later.");
+  }
+  if (!res.ok) {
+    const detail = (await res.text().catch(() => "")).slice(0, 200);
+    throw new ConversionError("CONVERSION_FAILED", `The document converter rejected this file (${res.status}). ${detail}`.trim());
+  }
+  return Buffer.from(await res.arrayBuffer());
+}
+
+/** DOCX/XLSX/PPTX -> PDF via Gotenberg (if configured) or LibreOffice headless with an isolated profile and a hard timeout. */
 export async function officeToPdf(buf: Buffer, ext: "docx" | "xlsx" | "pptx"): Promise<Buffer> {
+  const { GOTENBERG_URL, GOTENBERG_AUTH } = env();
+  if (GOTENBERG_URL) return gotenbergToPdf(buf, ext, GOTENBERG_URL, GOTENBERG_AUTH || undefined);
   const soffice = findLibreOffice();
   if (!soffice) {
     throw new ConversionError(
       "CONVERSION_UNAVAILABLE",
-      "Office files need LibreOffice on the server, which is not installed. Export the file as PDF and upload that instead.",
+      "Office files can't be converted on this server (no LibreOffice or Gotenberg configured). Export the file as PDF and upload that instead.",
     );
   }
   return withSlot(async () => {

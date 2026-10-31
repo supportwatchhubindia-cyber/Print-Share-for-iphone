@@ -13,7 +13,7 @@ import { ConfirmDialog } from "../ui/dialog";
 import { EmptyState, ErrorState, Notice } from "../shared/states";
 import { FileIcon } from "./file-icon";
 import { useDocuments } from "@/hooks/use-api";
-import { apiFetch, errorMessage, uploadDocument } from "@/lib/api-client";
+import { apiFetch, errorMessage, uploadDocument, uploadDocumentViaBlob } from "@/lib/api-client";
 import { ACCEPT_ATTRIBUTE, ACCEPTED_EXTENSIONS, extensionOf, isAcceptedExtension } from "@/lib/constants";
 import { formatBytes, plural, timeAgo } from "@/lib/format";
 import { cn } from "@/lib/utils";
@@ -32,7 +32,18 @@ type Item = {
 const CONCURRENCY = 3;
 let seq = 0;
 
-export function UploadManager({ maxUploadMb, officeAvailable }: { maxUploadMb: number; officeAvailable: boolean }) {
+export function UploadManager({
+  maxUploadMb,
+  officeAvailable,
+  uploadMode,
+  userId,
+}: {
+  maxUploadMb: number;
+  officeAvailable: boolean;
+  /** "blob" on Vercel: upload straight to Vercel Blob, then ingest (4.5 MB function body limit). */
+  uploadMode: "direct" | "blob";
+  userId: string;
+}) {
   const router = useRouter();
   const { mutate } = useSWRConfig();
   const [items, setItems] = React.useState<Item[]>([]);
@@ -67,10 +78,10 @@ export function UploadManager({ maxUploadMb, officeAvailable }: { maxUploadMb: n
     for (const item of waiting) {
       const abort = new AbortController();
       update(item.key, { status: "uploading", progress: 0, abort });
-      uploadDocument(
-        item.file,
-        (fraction) => update(item.key, fraction >= 1 ? { progress: 1, status: "processing" } : { progress: fraction }),
-        abort.signal,
+      const onProgress = (fraction: number) => update(item.key, fraction >= 1 ? { progress: 1, status: "processing" } : { progress: fraction });
+      (uploadMode === "blob"
+        ? uploadDocumentViaBlob(item.file, userId, onProgress, abort.signal)
+        : uploadDocument(item.file, onProgress, abort.signal)
       )
         .then(({ document }) => {
           update(item.key, { status: "ready", progress: 1, document, abort: undefined });
@@ -78,7 +89,7 @@ export function UploadManager({ maxUploadMb, officeAvailable }: { maxUploadMb: n
         })
         .catch((err) => update(item.key, { status: "error", error: errorMessage(err), abort: undefined }));
     }
-  }, [items, update, mutate]);
+  }, [items, update, mutate, uploadMode, userId]);
 
   const ready = items.filter((i) => i.status === "ready");
   const busy = items.some((i) => i.status === "uploading" || i.status === "processing" || i.status === "queued");
@@ -147,7 +158,7 @@ export function UploadManager({ maxUploadMb, officeAvailable }: { maxUploadMb: n
 
       {!officeAvailable && (
         <Notice tone="warning" title="Office files can't be converted on this server">
-          Word, Excel and PowerPoint uploads need LibreOffice on the server. Export them to PDF on your phone first, or ask the administrator to install LibreOffice.
+          Word, Excel and PowerPoint uploads need a document converter on the server. Export them to PDF on your phone first, or ask the administrator to configure one.
         </Notice>
       )}
 

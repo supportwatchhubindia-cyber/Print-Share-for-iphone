@@ -1,4 +1,5 @@
 import { prisma } from "./db";
+import { realtimeTransport } from "./env";
 import type { ClientRealtimeEvent } from "@/lib/types";
 
 export const EVENTS_CHANNEL = "printshare_events";
@@ -20,6 +21,8 @@ export type EventEnvelope =
  * Delivery is best-effort: clients also refetch on reconnect.
  */
 async function publish(envelope: EventEnvelope) {
+  // Serverless deployments have no WebSocket listener; browsers poll and bridges long-poll instead.
+  if (realtimeTransport() === "poll") return;
   try {
     await prisma.$executeRaw`SELECT pg_notify(${EVENTS_CHANNEL}, ${JSON.stringify(envelope)})`;
   } catch (err) {
